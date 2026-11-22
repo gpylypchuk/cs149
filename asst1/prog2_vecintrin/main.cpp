@@ -241,14 +241,56 @@ void clampedExpSerial(float* values, int* exponents, float* output, int N) {
 }
 
 void clampedExpVector(float* values, int* exponents, float* output, int N) {
+  __cs149_vec_float x;
+  __cs149_vec_float result;
+  __cs149_vec_float one = _cs149_vset_float(1.f);
+  __cs149_vec_float zero = _cs149_vset_float(0.f);
+  __cs149_vec_float nine = _cs149_vset_float(9.999999f);
+  
+  __cs149_vec_int y;
+  __cs149_vec_int count;
+  __cs149_vec_int oneInt = _cs149_vset_int(1);
+  __cs149_vec_int zeroInt = _cs149_vset_int(0);
+  
+  __cs149_mask maskAll, maskIsZero, maskIsNotZero, maskIsGreaterThan, maskActive;
 
-  //
-  // CS149 STUDENTS TODO: Implement your vectorized version of
-  // clampedExpSerial() here.
-  //
-  // Your solution should work for any value of
-  // N and VECTOR_WIDTH, not just when VECTOR_WIDTH divides N
-  //
+
+  for(int i=0; i<N; i+=VECTOR_WIDTH){
+    // All zeros
+    maskIsZero = _cs149_init_ones(0);
+    maskActive = _cs149_init_ones(0);
+    
+    // All ones, ej para 4 [1 1 1 1] excepto la ultima que podria ser [1 1 0 0] 
+    int remaining = N - i;
+    maskAll = _cs149_init_ones(remaining < VECTOR_WIDTH ? remaining : VECTOR_WIDTH);
+
+    _cs149_vload_float(x, values+i, maskAll); // x = values[i];
+    _cs149_vload_int(y, exponents+i, maskAll); // y = values[i];
+
+    _cs149_veq_int(maskIsZero, y, zeroInt, maskAll); // if (y == 0) {
+
+    _cs149_vset_float(result, 1.f, maskIsZero); // output[i] = 1.f;
+
+    __cs149_mask maskNotZero = _cs149_mask_not(maskIsZero); // !(y == 0)
+    maskIsNotZero = _cs149_mask_and(maskNotZero, maskAll); // ... && el lane existe
+
+    _cs149_vmove_float(result, x, maskIsNotZero);
+    _cs149_vsub_int(count, y, oneInt, maskIsNotZero);
+
+    _cs149_vgt_int(maskActive, count, zeroInt, maskIsNotZero);
+
+    while (_cs149_cntbits(maskActive) > 0)
+    {
+      _cs149_vmult_float(result, result, x, maskActive);
+      _cs149_vsub_int(count, count, oneInt, maskActive);
+      _cs149_vgt_int(maskActive, count, zeroInt, maskActive);  // 
+    }
+
+    _cs149_vgt_float(maskIsGreaterThan, result, nine, maskAll);
+    _cs149_vset_float(result, 9.999999f, maskIsGreaterThan);
+
+    _cs149_vstore_float(output+i, result, maskAll);
+  }
   
 }
 
