@@ -259,7 +259,7 @@ void clampedExpVector(float* values, int* exponents, float* output, int N) {
     // All zeros
     maskIsZero = _cs149_init_ones(0);
     maskActive = _cs149_init_ones(0);
-    
+
     // All ones, ej para 4 [1 1 1 1] excepto la ultima que podria ser [1 1 0 0] 
     int remaining = N - i;
     maskAll = _cs149_init_ones(remaining < VECTOR_WIDTH ? remaining : VECTOR_WIDTH);
@@ -308,15 +308,25 @@ float arraySumSerial(float* values, int N) {
 // You can assume N is a multiple of VECTOR_WIDTH
 // You can assume VECTOR_WIDTH is a power of 2
 float arraySumVector(float* values, int N) {
-  
-  //
-  // CS149 STUDENTS TODO: Implement your vectorized version of arraySumSerial here
-  //
-  
-  for (int i=0; i<N; i+=VECTOR_WIDTH) {
+  __cs149_vec_float sum = _cs149_vset_float(0.f);
+  __cs149_vec_float x;
 
+  __cs149_mask maskAll = _cs149_init_ones();
+
+  for (int i=0; i<N; i+=VECTOR_WIDTH) {
+    _cs149_vload_float(x, values+i, maskAll);
+    _cs149_vadd_float(sum, sum, x, maskAll);
   }
 
-  return 0.0;
+  // juntar las VECTOR_WIDTH sumas parciales en una
+  for (int w = VECTOR_WIDTH; w > 1; w /= 2) {
+    _cs149_hadd_float(sum, sum);        // suma pares vecinos
+    _cs149_interleave_float(sum, sum);  // reacomoda para la próxima ronda
+  }
+
+  // Sacar el resultado del lane 0
+  float out[VECTOR_WIDTH];
+  _cs149_vstore_float(out, sum, maskAll);
+  return out[0];
 }
 
