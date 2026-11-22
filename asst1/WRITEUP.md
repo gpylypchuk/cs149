@@ -84,3 +84,86 @@ Con el reparto por bloques, en cambio, 7 y 8 threads **mejoraban** el speedup: a
 - **El límite es la cantidad de núcleos.** Con más threads que núcleos el speedup cae: con 7 threads, algún núcleo tiene que alternar entre dos y termina último. El speedup se recupera parcialmente cuando la cantidad de threads es múltiplo de los núcleos (12 threads → 5.29x).
 
 - **El reparto intercalado funciona porque filas vecinas cuestan parecido.** Al alternarlas, cada thread recibe una mezcla equivalente de filas caras y baratas. Si el costo variara de forma impredecible, un reparto estático podría quedar desbalanceado igual; en ese caso convendría un reparto dinámico (una cola de filas compartida de la que cada thread toma la siguiente al terminar).
+
+---
+
+## Program 2: Vectorización con intrinsics SIMD (simulados)
+
+Este programa usa los intrinsics simulados de `CS149intrin.h`, que modelan registros vectoriales de `VECTOR_WIDTH` lanes y cuentan cada instrucción vectorial ejecutada (cada una se asume de 1 ciclo). No hay mediciones de tiempo real: las métricas son la cantidad total de instrucciones y la **utilización vectorial** (el porcentaje de lanes activos sobre el total).
+
+### 1. `clampedExpVector`
+
+La función serial eleva cada `values[i]` a `exponents[i]` y recorta el resultado en 9.999999. Para vectorizarla, cada estructura de control del código serial se convierte en una **máscara** (un bit por lane que indica qué lanes ejecutan cada instrucción):
+
+| Código serial | Versión vectorial |
+|---|---|
+| `i < N` | `maskAll`: en la última vuelta solo activa los lanes que existen (`_cs149_init_ones(min(VECTOR_WIDTH, N - i))`) |
+| `if (y == 0)` | `maskIsZero = (y == 0)`, con `veq_int` |
+| `else` | `maskIsNotZero = !maskIsZero && maskAll` |
+| `while (count > 0)` | `maskActive = (count > 0)`, recalculada en cada vuelta; el loop sigue mientras `cntbits(maskActive) > 0` |
+| `if (result > 9.999999f)` | `maskIsGreaterThan = (result > 9.999999)` |
+
+```cpp
+_cs149_vgt_int(maskActive, count, zeroInt, maskIsNotZero);
+while (_cs149_cntbits(maskActive) > 0) {
+    _cs149_vmult_float(result, result, x, maskActive);
+    _cs149_vsub_int(count, count, oneInt, maskActive);
+    _cs149_vgt_int(maskActive, count, zeroInt, maskActive);
+}
+```
+
+Dos detalles que causaron errores durante la implementación:
+
+- **Las comparaciones con máscara solo escriben en los lanes activos**; los demás conservan su valor anterior. Por eso `maskIsZero` y `maskActive` se inicializan en cero al principio de cada vuelta: si no, los lanes no comparados pueden quedar con basura y entrar al `while`.
+- **Los lanes que no existen** (cuando `N` no es múltiplo de `VECTOR_WIDTH`) tienen que excluirse de todas las máscaras, no solo de los `load`/`store`. Si no, entran al `else` con un exponente basura y el `while` puede dar vueltas de más.
+
+La implementación pasa para cualquier `N`, incluido `N = 3` con `VECTOR_WIDTH = 4`.
+
+### 2. Utilización según `VECTOR_WIDTH` (N = 10000)
+
+![Utilización vectorial](images/prog2_utilizacion.png)
+
+| `VECTOR_WIDTH` | Instrucciones | Utilización | Reducción vs. ancho 2 | Ideal |
+|---|---|---|---|---|
+| 2 | 167 729 | 77.9% | 1.00x | 1x |
+| 4 | 97 077 | 70.7% | 1.73x | 2x |
+| 8 | 52 879 | 67.0% | 3.17x | 4x |
+| 16 | 27 594 | 65.2% | 6.08x | 8x |
+
+**La utilización baja a medida que crece el ancho del vector.** La causa es la **divergencia** en el `while`: todos los lanes ejecutan la misma instrucción, así que un vector no puede avanzar al siguiente grupo de elementos hasta que termine su lane más lento. Las vueltas que da cada grupo son
+
+$$\text{vueltas del grupo} = \max_{k \in \text{grupo}} (y_k - 1)$$
+
+mientras que el trabajo útil depende del promedio de los exponentes. Los lanes que terminan antes quedan con la máscara en 0 y su ALU recibe instrucciones sin hacer nada útil. Cuanto más ancho es el vector, más probable es que el grupo contenga un exponente grande, y más lanes quedan esperando.
+
+**La caída se va frenando** (−7.2, −3.7 y −1.8 puntos) porque los exponentes tienen un tope: con grupos grandes, el máximo del grupo ya está casi siempre cerca del exponente máximo, y agrandar el grupo no lo empeora mucho más.
+
+Aun así, **vectores más anchos ejecutan muchas menos instrucciones en total**: con ancho 16 se ejecutan 6.08x menos instrucciones que con ancho 2. Baja la eficiencia por lane, pero el rendimiento total sigue subiendo. La diferencia entre la reducción real y la ideal es justamente la utilización perdida.
+
+**Posible mejora:** con exponenciación por cuadrados ($x^9 = ((x^2)^2)^2 \cdot x$), el loop pasa de hasta $y - 1$ vueltas a $\lceil \log_2 y \rceil$, lo que reduce tanto el trabajo como la diferencia entre lanes rápidos y lentos.
+
+### 3. Extra: `arraySumVector`
+
+La suma se hace en dos fases:
+
+1. **Acumulación:** un vector `sum` acumula de a `VECTOR_WIDTH` elementos, así que cada lane guarda la suma parcial de "su columna" del array. Son $N / W$ instrucciones `vadd`.
+2. **Reducción:** las $W$ sumas parciales se combinan en $\log_2 W$ rondas de `hadd` (suma pares de lanes vecinos) + `interleave` (pone los lanes pares primero y los impares después, para que las sumas a combinar queden vecinas en la ronda siguiente).
+
+```
+[ 1 | 2 | 3 | 4 ]
+hadd       → [ 3 | 3 | 7 | 7 ]
+interleave → [ 3 | 7 | 3 | 7 ]
+hadd       → [ 10 | 10 | 10 | 10 ]
+```
+
+```cpp
+for (int w = VECTOR_WIDTH; w > 1; w /= 2) {
+    _cs149_hadd_float(sum, sum);
+    _cs149_interleave_float(sum, sum);
+}
+float out[VECTOR_WIDTH];
+_cs149_vstore_float(out, sum, maskAll);
+return out[0];
+```
+
+El costo total es del orden de $N/W + 2\log_2 W$ instrucciones, dentro del objetivo del enunciado ($N/W + \log_2 W$, a menos de una constante). Pasa para `VECTOR_WIDTH` de 2, 4, 8 y 16.
