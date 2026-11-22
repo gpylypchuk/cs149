@@ -29,28 +29,26 @@ extern void mandelbrotSerial(
 //
 // Thread entrypoint.
 void workerThreadStart(WorkerArgs * const args) {
+    
+    int height     = args->height;      // 1200
+    int numThreads = args->numThreads;  // 3 por ej
+    int myId       = args->threadId;    // 0, 1, 2...
 
-    unsigned int height = args->height;
-    unsigned int rowsPerThread = height/args->numThreads;
-    int startRow = args->threadId*rowsPerThread;
+    double startTime = CycleTimer::currentSeconds();
 
-    int numRows = rowsPerThread;
-    if (args->threadId == args->numThreads - 1)
-        numRows = height - startRow;   // el ultimo toma hasta el final
+    for (int row = myId; row < height; row += numThreads) {
+        mandelbrotSerial(
+            args->x0, args->y0, args->x1, args->y1,
+            args->width, args->height,
+            row,
+            1,
+            args->maxIterations,
+            args->output
+        );
+    }
 
-    mandelbrotSerial(
-        args->x0,
-        args->y0,
-        args->x1,
-        args->y1,
-        args->width,
-        args->height,
-        startRow,
-        numRows,
-        args->maxIterations,
-        args->output
-    );
-
+    double endTime = CycleTimer::currentSeconds();
+    printf("[thread %d] %.3f ms\n", args->threadId, (endTime - startTime) * 1000);
 }
 
 //
