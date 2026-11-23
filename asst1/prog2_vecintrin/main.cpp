@@ -320,8 +320,23 @@ float arraySumVector(float* values, int N) {
 
   // juntar las VECTOR_WIDTH sumas parciales en una
   for (int w = VECTOR_WIDTH; w > 1; w /= 2) {
-    _cs149_hadd_float(sum, sum);        // suma pares vecinos
-    _cs149_interleave_float(sum, sum);  // reacomoda para la próxima ronda
+
+    // Ejemplo
+    // [ 1 | 2 | 3 | 4 ] -> [ 3 | 3 | 7 | 7 ]
+    // horizontal add: suma dentro del vector entre lanes vecinos
+    _cs149_hadd_float(sum, sum);        
+
+    // Ejemplo
+    // [ 3 | 3 | 7 | 7 ] -> [ 3 | 7 | 3 | 7 ]
+    // hadd solo suma lanes vecinos 0 con 1, 2 con 3. 
+    // Despues, las dos sumas que hay que hacer son 3 y 7, entonces
+    // interleave me las reacomoda para la proxima iteracion
+    _cs149_interleave_float(sum, sum);
+    
+    // Y en la ultima (segunda) iteracion:
+    // hadd:       [ 3 | 7 | 3 | 7 ]  →  [ 10 | 10 | 10 | 10 ]
+    // interleave: [ 10 | 10 | 10 | 10 ]  →  [ 10 | 10 | 10 | 10 ]
+    // Ahora todos los lanes tienen el total
   }
 
   // Sacar el resultado del lane 0
