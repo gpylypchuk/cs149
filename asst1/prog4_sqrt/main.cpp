@@ -9,6 +9,7 @@
 using namespace ispc;
 
 extern void sqrtSerial(int N, float startGuess, float* values, float* output);
+extern void sqrtAVX2(int N, float startGuess, float* values, float* output);
 
 static void verifyResult(int N, float* result, float* gold) {
     for (int i=0; i<N; i++) {
@@ -34,7 +35,16 @@ int main() {
         // to you generate best and worse-case speedups
         
         // starter code populates array with random input values
-        values[i] = .001f + 2.998f * static_cast<float>(rand()) / RAND_MAX;
+        // values[i] = .001f + 2.998f * static_cast<float>(rand()) / RAND_MAX;
+
+        // Mejor caso
+        values[i] = 2.99999f;
+
+        // Peor caso
+        //values[i] = i % 8 == 0? 2.99999f: 1.f;
+
+        // test
+        //values[i] = 1.f;
     }
 
     // generate a gold version to check results
@@ -56,6 +66,24 @@ int main() {
     printf("[sqrt serial]:\t\t[%.3f] ms\n", minSerial * 1000);
 
     verifyResult(N, output, gold);
+
+    //
+    // AVX2 intrinsics implementation (extra credit)
+    //
+    float* outputAVX2 = new float[N];
+    double minAVX2 = 1e30;
+    for (int i = 0; i < 3; ++i) {
+        double startTime = CycleTimer::currentSeconds();
+        sqrtAVX2(N, initialGuess, values, outputAVX2);
+        double endTime = CycleTimer::currentSeconds();
+        minAVX2 = std::min(minAVX2, endTime - startTime);
+    }
+
+    printf("[sqrt avx2]:\t\t[%.3f] ms\n", minAVX2 * 1000);
+    verifyResult(N, outputAVX2, gold);
+    printf("\t\t\t\t(%.2fx speedup from AVX2)\n", minSerial / minAVX2);
+
+    delete[] outputAVX2;
 
     //
     // Compute the image using the ispc implementation; report the minimum
