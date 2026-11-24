@@ -77,3 +77,12 @@ export void mandelbrot_ispc_withtasks(uniform float x0, uniform float y0,
                                      maxIterations,
                                      output); 
 }
+
+//export void mandelbrot_ispc_withtasks(...) {
+//    launch[400] mandelbrot_ispc_task(...);   // nivel 1: reparte entre núcleos
+//}
+//
+//task void mandelbrot_ispc_task(...) {
+//    foreach (j = ystart ... yend, i = 0 ... width) {   // nivel 2: reparte entre lanes
+//        ...
+//    }
