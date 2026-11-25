@@ -86,6 +86,7 @@ void computeAssignmentsThread(WorkerArgs *const args) {
 
   int dataPoints = args->M;
 
+  // reparto el trabajo entre threads en bloques porque el trabajo es parecido
   for (int i = 0; i < numThreads; i++) {
     threadArgs[i] = *args;   // copia todos los campos (data, centroids, assignments, N, K, start, end...)
     threadArgs[i].MStart = i * dataPoints / numThreads;
@@ -203,6 +204,7 @@ void kMeansThread(double *data, double *clusterCentroids, int *clusterAssignment
   args.M = M;
   args.N = N;
   args.K = K;
+  // Agregue un start y end para paralelizar
   args.MStart = 0; 
   args.MEnd = M;
 
@@ -235,16 +237,16 @@ void kMeansThread(double *data, double *clusterCentroids, int *clusterAssignment
     computeCost(&args);
     double t3 = CycleTimer::currentSeconds();
 
-    tAssign    += t1 - t0;
+    tAssign += t1 - t0;
     tCentroids += t2 - t1;
-    tCost      += t3 - t2;
+    tCost += t3 - t2;
 
     iter++;
   }
 
-  printf("[computeAssignments]: %.3f ms\n", tAssign    * 1000);   // después del while
+  printf("[computeAssignments]: %.3f ms\n", tAssign * 1000);
   printf("[computeCentroids]:   %.3f ms\n", tCentroids * 1000);
-  printf("[computeCost]:        %.3f ms\n", tCost      * 1000);
+  printf("[computeCost]:        %.3f ms\n", tCost * 1000);
 
   delete[] currCost;
   delete[] prevCost;
