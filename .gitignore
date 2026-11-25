@@ -15,3 +15,11 @@ asst1/prog3_mandelbrot_ispc/mandelbrot_ispc
 asst1/prog4_sqrt/sqrt
 asst1/prog5_saxpy/saxpy
 asst1/prog6_kmeans/kmeans
+asst1/prog6_kmeans/data.dat
+asst1/prog6_kmeans/*.log
+.venv/
+asst1/prog6_kmeans/data.dat
+asst1/prog6_kmeans/*.log
+.venv/
+asst1/prog6_kmeans/data.dat
+asst1/prog6_kmeans/*.log
