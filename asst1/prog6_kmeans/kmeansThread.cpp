@@ -17,7 +17,8 @@ typedef struct {
   double *clusterCentroids;
   int *clusterAssignments;
   double *currCost;
-  int M, N, K;
+  int M, MStart, MEnd, N, K;
+
 } WorkerArgs;
 
 
@@ -65,27 +66,41 @@ double dist(double *x, double *y, int nDim) {
  * Assigns each data point to its "closest" cluster centroid.
  */
 void computeAssignments(WorkerArgs *const args) {
-  double *minDist = new double[args->M];
-  
-  // Initialize arrays
-  for (int m =0; m < args->M; m++) {
-    minDist[m] = 1e30;
-    args->clusterAssignments[m] = -1;
-  }
-
-  // Assign datapoints to closest centroids
-  for (int k = args->start; k < args->end; k++) {
-    for (int m = 0; m < args->M; m++) {
+  for (int m = args->MStart; m < args->MEnd; m++) {
+    double minDist = 1e30;
+    int best = -1;
+    for (int k = args->start; k < args->end; k++) {
       double d = dist(&args->data[m * args->N],
                       &args->clusterCentroids[k * args->N], args->N);
-      if (d < minDist[m]) {
-        minDist[m] = d;
-        args->clusterAssignments[m] = k;
-      }
+      if (d < minDist) { minDist = d; best = k; }
     }
+    args->clusterAssignments[m] = best;
+  }
+}
+
+// Speedup ~2.15x
+void computeAssignmentsThread(WorkerArgs *const args) {
+  const int numThreads = 6;
+  std::thread workers[numThreads];
+  WorkerArgs threadArgs[numThreads];
+
+  int dataPoints = args->M;
+
+  for (int i = 0; i < numThreads; i++) {
+    threadArgs[i] = *args;   // copia todos los campos (data, centroids, assignments, N, K, start, end...)
+    threadArgs[i].MStart = i * dataPoints / numThreads;
+    threadArgs[i].MEnd   = (i + 1) * dataPoints / numThreads;
   }
 
-  delete[] minDist;
+  for (int i = 1; i < numThreads; i++){
+    workers[i] = std::thread(computeAssignments, &threadArgs[i]);
+  }
+
+  computeAssignments(&threadArgs[0]);
+
+  for (int i = 1; i < numThreads; i++){
+    workers[i].join();
+  }
 }
 
 /**
@@ -188,12 +203,16 @@ void kMeansThread(double *data, double *clusterCentroids, int *clusterAssignment
   args.M = M;
   args.N = N;
   args.K = K;
+  args.MStart = 0; 
+  args.MEnd = M;
 
   // Initialize arrays to track cost
   for (int k = 0; k < K; k++) {
     prevCost[k] = 1e30;
     currCost[k] = 0.0;
   }
+
+  double tAssign = 0.0, tCentroids = 0.0, tCost = 0.0;
 
   /* Main K-Means Algorithm Loop */
   int iter = 0;
@@ -207,12 +226,25 @@ void kMeansThread(double *data, double *clusterCentroids, int *clusterAssignment
     args.start = 0;
     args.end = K;
 
-    computeAssignments(&args);
+    
+    double t0 = CycleTimer::currentSeconds();
+    computeAssignmentsThread(&args);
+    double t1 = CycleTimer::currentSeconds();
     computeCentroids(&args);
+    double t2 = CycleTimer::currentSeconds();
     computeCost(&args);
+    double t3 = CycleTimer::currentSeconds();
+
+    tAssign    += t1 - t0;
+    tCentroids += t2 - t1;
+    tCost      += t3 - t2;
 
     iter++;
   }
+
+  printf("[computeAssignments]: %.3f ms\n", tAssign    * 1000);   // después del while
+  printf("[computeCentroids]:   %.3f ms\n", tCentroids * 1000);
+  printf("[computeCost]:        %.3f ms\n", tCost      * 1000);
 
   delete[] currCost;
   delete[] prevCost;
