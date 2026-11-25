@@ -1,0 +1,17 @@
+# Archivos generados al compilar
+objs/
+*.o
+
+# Imágenes que generan los programas
+*.ppm
+*.png
+# ...salvo las del writeup
+!asst1/images/*.png
+
+# Binarios
+asst1/prog1_mandelbrot_threads/mandelbrot
+asst1/prog2_vecintrin/myexp
+asst1/prog3_mandelbrot_ispc/mandelbrot_ispc
+asst1/prog4_sqrt/sqrt
+asst1/prog5_saxpy/saxpy
+asst1/prog6_kmeans/kmeans

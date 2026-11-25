@@ -5,7 +5,7 @@
 #include "saxpy_ispc.h"
 
 extern void saxpySerial(int N, float a, float* X, float* Y, float* result);
-
+extern void saxpyAVX2(int N, float scale, float X[], float Y[], float result[]);
 
 // return GB/s
 static float
@@ -32,7 +32,29 @@ using namespace ispc;
 int main() {
 
     const unsigned int N = 20 * 1000 * 1000; // 20 M element vectors (~80 MB)
+
+    /*
+        El factor 4 cuenta las transferencias de memoria por elemento: leer x[i], leer y[i], leer result[i] y escribir result[i].
+        Lee result porque lo lee desde la cache y si hay miss lo trae de la RAM
+
+        una linea de cache (64 bytes):
+        [ r0 | r1 | r2 | r3 | r4 | r5 | r6 | r7 | r8 | r9 | r10 | r11 | r12 | r13 | r14 | r15 ]
+
+        Asi ejecutaria el cpu
+        result[0]  → miss: trae la línea (result[0..15]) desde la RAM
+        result[1]  → hit: la línea ya está en caché
+        result[2]  → hit
+        ...
+        result[15] → hit
+        result[16] → miss: trae la línea siguiente (result[16..31])
+
+        ---POSIBLE MEJORA--
+        Juntar los 16 valores en un buffer y mandarlo directo a la ram con streaming store de AVX2
+        MAXIMO TEORICO 16/12 BYTES = 1.33x
+    */
     const unsigned int TOTAL_BYTES = 4 * N * sizeof(float);
+
+
     const unsigned int TOTAL_FLOPS = 2 * N;
 
     float scale = 2.f;
@@ -42,6 +64,8 @@ int main() {
     float* resultSerial = new float[N];
     float* resultISPC = new float[N];
     float* resultTasks = new float[N];
+
+    float* resultAVX2 = (float*) aligned_alloc(32, N * sizeof(float));
 
     // initialize array values
     for (unsigned int i=0; i<N; i++)
@@ -65,10 +89,23 @@ int main() {
         minSerial = std::min(minSerial, endTime - startTime);
     }
 
-// printf("[saxpy serial]:\t\t[%.3f] ms\t[%.3f] GB/s\t[%.3f] GFLOPS\n",
-    //       minSerial * 1000,
-    //       toBW(TOTAL_BYTES, minSerial),
-    //       toGFLOPS(TOTAL_FLOPS, minSerial));
+    printf("[saxpy serial]:\t\t[%.3f] ms\t[%.3f] GB/s\t[%.3f] GFLOPS\n",
+           minSerial * 1000,
+           toBW(TOTAL_BYTES, minSerial),
+           toGFLOPS(TOTAL_FLOPS, minSerial));
+
+    //
+    // Run the _mm256_stream_ps implementation on ISPC with immintrin
+    //
+    double minAVX2 = 1e30;
+    for (int i = 0; i < 3; ++i) {
+        double startTime = CycleTimer::currentSeconds();
+        saxpyAVX2(N, scale, arrayX, arrayY, resultAVX2);
+        double endTime = CycleTimer::currentSeconds();
+        minAVX2 = std::min(minAVX2, endTime - startTime);
+    }
+    printf("[saxpy avx2 stream]:\t[%.3f] ms\n", minAVX2 * 1000);
+    printf("\t\t\t\t(%.2fx speedup vs serial)\n", minSerial / minAVX2);
 
     //
     // Run the ISPC (single core) implementation
